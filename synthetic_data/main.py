@@ -1,9 +1,7 @@
 from faker import Faker
 import pandas as pd
 import random
-from datetime import timedelta
 import numpy as np
-from functools import partial
 from typing import Dict, List, Any, Tuple
 import concurrent.futures
 import time
@@ -12,7 +10,7 @@ fake = Faker()
 random.seed(42)
 np.random.seed(42)
 
-CALL_TYPES = ['voice', 'sms', 'data']
+CALL_TYPES = ['voice', 'sms']  
 DIRECTIONS = ['incoming', 'outgoing']
 NETWORK_TYPES = ['2G', '3G', '4G', '5G']
 CURRENCIES = ['USD', 'NGN']
@@ -20,7 +18,6 @@ NETWORK_PROVIDERS = ['MTN', 'Airtel', 'Glo', '9mobile']
 SERVICE_TYPES = ['prepaid', 'postpaid']
 ERROR_RATE = 0.05
 
-# Pre-generate values for performance
 REGIONS = [fake.state() for _ in range(100)]
 CITIES = [fake.city() for _ in range(200)]
 CELL_TOWER_IDS = [fake.numerify(text='CT-####') for _ in range(500)]
@@ -57,9 +54,6 @@ def apply_error(value: Any, column: str) -> Any:
     if column == 'call_duration_seconds' and r < ERROR_RATE * 2:
         return -abs(value)
     
-    if column == 'data_volume_mb' and r < ERROR_RATE * 2:
-        return np.nan
-    
     return value
 
 def get_call_type_specific_values(call_type: str, duration: int) -> Dict[str, Any]:
@@ -67,27 +61,15 @@ def get_call_type_specific_values(call_type: str, duration: int) -> Dict[str, An
         return {
             'call_duration_seconds': duration,
             'message_content': None,
-            'message_length': 0,
-            'data_volume_mb': 0,
-            'data_session_duration_seconds': 0
+            'message_length': 0
         }
-    elif call_type == 'sms':
+    else:  
         message_length = random.randint(1, 160)
         return {
             'call_duration_seconds': 0,
             'message_content': ''.join(random.choice('ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz ,.') 
                                       for _ in range(message_length)),
-            'message_length': message_length,
-            'data_volume_mb': 0,
-            'data_session_duration_seconds': 0
-        }
-    else:  # data
-        return {
-            'call_duration_seconds': 0,
-            'message_content': None,
-            'message_length': 0,
-            'data_volume_mb': round(random.uniform(0.1, 500.0), 2),
-            'data_session_duration_seconds': random.randint(1, 3600)
+            'message_length': message_length
         }
 
 def generate_base_row() -> Dict[str, Any]:
@@ -117,7 +99,7 @@ def generate_base_row() -> Dict[str, Any]:
     }
 
 def generate_row(with_errors: bool = False) -> Dict[str, Any]:
-    call_type = generate_random_choice(CALL_TYPES)
+    call_type = generate_random_choice(CALL_TYPES)  # Only 'voice' or 'sms'
     start_time, end_time, duration = generate_timestamps()
     row = generate_base_row()
     row['call_type'] = call_type
@@ -191,9 +173,8 @@ def main(total_records: int = 1000000, dirty_percentage: float = 20, output_file
     print(f"Dataset saved in {save_time:.2f} seconds")
     
     print(f"Total records: {len(df_full)}")
-    print(f"Memory usage: {df_full.memory_usage(deep=True).sum() / (1024**2):.2f} MB")
     
     return df_full
 
 if __name__ == "__main__":
-    main(1000000, 20, "telco_data.parquet")
+    main(50000, 40, "data/telco_data.parquet")
