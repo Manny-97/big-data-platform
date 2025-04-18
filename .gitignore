@@ -1,0 +1,78 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Virtual environments
+venv/
+.env/
+.venv/
+env/
+ENV/
+
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints
+
+# Pytest cache
+.pytest_cache/
+.cache/
+
+# mypy
+.mypy_cache/
+
+# Pyre type checker
+.pyre/
+
+# Pylint and coverage reports
+*.cover
+coverage.xml
+htmlcov/
+.tox/
+
+# Logs
+*.log
+logs/
+outputs/
+
+# VSCode settings
+.vscode/
+
+# Mac and Linux trash
+.DS_Store
+*.swp
+*~
+
+# pipenv
+Pipfile.lock
+
+# pyright
+typings/
+
+# Parquet files or other data files
+*.parquet
+*.csv
+*.tsv
+*.json
+
+# Compiled binaries
+*.exe
+*.dll
+*.out
+*.o
+
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
+
+# Docker
+*.pid
+*.tar
+*.gz
+*.zip
+
+# Environment variable files
+.env.*
