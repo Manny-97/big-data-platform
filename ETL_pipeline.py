@@ -37,9 +37,8 @@ def load_environment():
     base_path = os.getenv("BASE_FILE_PATH")
     source_bucket = os.getenv("SOURCE_BUCKET")
     target_path =  os.getenv("TARGET_PATH")
-    target_object_key = os.getenv("TARGET_OBJECT_KEY")
 
-    return env_type, aws_access_key, aws_secret_key, aws_region, jar_path,base_path,source_bucket,target_path,target_object_key
+    return env_type, aws_access_key, aws_secret_key, aws_region, jar_path,base_path,source_bucket,target_path
 
 
 def create_spark_connection(env_type, aws_access_key, aws_secret_key, aws_region, jar_path):
@@ -275,7 +274,7 @@ def main():
     try:
         start = time.time()
 
-        env_type, aws_access_key, aws_secret_key, aws_region, jar_path,base_path,source_bucket,target_path,target_object_key = load_environment()
+        env_type,aws_access_key, aws_secret_key, aws_region, jar_path,base_path,source_bucket,target_path = load_environment()
         spark = create_spark_connection(env_type, aws_access_key, aws_secret_key, aws_region, jar_path)
         
         # Get all files uploaded in last 24 hours
