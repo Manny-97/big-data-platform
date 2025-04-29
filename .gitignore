@@ -58,7 +58,7 @@ typings/
 *.parquet
 *.csv
 *.tsv
-*.json
+# *.json
 
 # Compiled binaries
 *.exe

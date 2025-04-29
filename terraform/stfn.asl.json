@@ -1,0 +1,77 @@
+{
+    "Comment": "An example of the Amazon States Language for running jobs on Amazon EMR Serverless",
+    "StartAt": "Create an EMR Serverless Application",
+    "QueryLanguage": "JSONata",
+    "States": {
+      "Create an EMR Serverless Application": {
+        "Type": "Task",
+        "Resource": "arn:aws:states:::emr-serverless:createApplication.sync",
+        "Arguments": {
+          "Name": "Team2",
+          "Type": "SPARK",
+          "ReleaseLabel": "emr-6.10.0",
+          "InitialCapacity": {
+            "DRIVER": {
+              "WorkerConfiguration": {
+                "Cpu": "2",
+                "Memory": "4",
+                "Disk": "20gb"
+              },
+              "WorkerCount": 1
+            },
+            "EXECUTOR": {
+              "WorkerConfiguration": {
+                "Cpu": "4",
+                "Memory": "8",
+                "Disk": "20gb"
+              },
+              "WorkerCount": 2
+            }
+          },
+          "MonitoringConfiguration": {
+            "CloudWatchLoggingConfiguration": {
+              "Enabled": true,
+              "LogGroupName": "stepfunctionslogs"
+            }
+          }
+        },
+        "Assign": {
+          "ApplicationId": "{% $states.result.ApplicationId %}"
+        },
+        "Next": "Start Application"
+      },
+      "Start Application": {
+        "Type": "Task",
+        "Resource": "arn:aws:states:::emr-serverless:startApplication.sync",
+        "Arguments": {
+          "ApplicationId": "{% $ApplicationId %}"
+        },
+        "Next": "Run first job"
+      },
+      "Run first job": {
+        "Type": "Task",
+        "Resource": "arn:aws:states:::emr-serverless:startJobRun.sync",
+        "Arguments": {
+          "ApplicationId": "{% $ApplicationId %}",
+          "ExecutionRoleArn": "${EXECUTION_ROLE_ARN}",
+          "JobDriver": {
+            "SparkSubmit": {
+              "EntryPoint": "s3://final-aws-project/printme.py"
+            }
+          }
+        },
+        "Assign": {
+          "FirstJobId": "{% $states.result.JobRunId %}"
+        },
+        "Next": "Stop Application"
+      },
+      "Stop Application": {
+        "Type": "Task",
+        "Resource": "arn:aws:states:::emr-serverless:stopApplication.sync",
+        "Arguments": {
+          "ApplicationId": "{% $ApplicationId %}"
+        },
+        "End": true
+      }
+    }
+  }
