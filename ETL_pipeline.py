@@ -5,10 +5,11 @@ import glob
 from dotenv import load_dotenv
 from pyspark.sql import SparkSession
 from pyspark import SparkConf
-from pyspark.sql.functions import col, to_timestamp
+from pyspark.sql.functions import col, to_timestamp,max
 from datetime import datetime, timedelta, timezone
 import boto3
 import sys
+from pyspark.sql.utils import AnalysisException
 
 
 # Create logs directory if not exists
@@ -20,8 +21,8 @@ logging.basicConfig(
     handlers=[logging.FileHandler(log_filename), logging.StreamHandler()],
 )
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
-logger = logging.getLogger("ETL_Telco")
+# logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
+# logger = logging.getLogger("ETL_Telco")
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +35,10 @@ def load_environment():
     aws_region = os.getenv("AWS_REGION")
     jar_path = os.getenv("SPARK_JAR_PATH")
     base_path = os.getenv("BASE_FILE_PATH")
-    return env_type, aws_access_key, aws_secret_key, aws_region, jar_path,base_path
+    source_bucket = os.getenv("SOURCE_BUCKET")
+    target_path =  os.getenv("TARGET_PATH")
+
+    return env_type, aws_access_key, aws_secret_key, aws_region, jar_path,base_path,source_bucket,target_path
 
 
 def create_spark_connection(env_type, aws_access_key, aws_secret_key, aws_region, jar_path):
@@ -76,29 +80,47 @@ def create_spark_connection(env_type, aws_access_key, aws_secret_key, aws_region
         raise
 
 ## Get the list of files uploaded every last 24 hours
-def get_files_uploaded_last_24_hours(aws_access_key: str, aws_secret_key: str,bucket_name: str):
+def get_uploaded_files(spark,aws_access_key: str, aws_secret_key: str,source_bucket: str,target_path: str):
     
     try:
-        logger.info("Connecting to S3 bucket to list recent files...")
+        logger.info("Connecting to S3 bucket to list files...")
         
         s3 = boto3.client('s3', aws_access_key_id=aws_access_key, aws_secret_access_key=aws_secret_key)
-        # Make start_time timezone-aware in UTC to ensure consistent time comparison with s3
-        start_time = datetime.now(timezone.utc) - timedelta(days=1) # Example: list out files uploaded every last 24 hours
 
-        response = s3.list_objects_v2(Bucket=bucket_name)
+        # Check if target dataset exists (First Run Logic)
+        first_run = False
+        try:
+            spark.read.parquet(target_path)
+            logger.info("Existing target dataset found. Proceeding with incremental load.")
+        except AnalysisException:
+            logger.warning("Target dataset not found. Assuming FIRST RUN — full load will be performed.")
+            first_run = True
+
+        # List objects in the bucket
+        response = s3.list_objects_v2(Bucket=source_bucket)
 
         if 'Contents' not in response:
-            logger.warning(f"No files found in bucket '{bucket_name}'.")
+            logger.warning(f"No files found in bucket '{source_bucket}'.")
             return []
-        
-        
-        file_list = [
-            f"s3a://{bucket_name}/{obj['Key']}"
-            for obj in response['Contents']
-            if obj['LastModified'] > start_time
-        ]
 
-        logger.info(f"Found {len(file_list)} new files uploaded in the last 24 hours.")
+        # If first run → Process **all files**
+        if first_run:
+            file_list = [
+                f"s3a://{source_bucket}/{obj['Key']}"
+                for obj in response['Contents']
+            ]
+            logger.info(f"First run: Found {len(file_list)} total files to process.")
+        
+        # If not first run → Process **files uploaded in last 24 hours**
+        else:
+            start_time = datetime.now(timezone.utc) - timedelta(days=1)
+            file_list = [
+                f"s3a://{source_bucket}/{obj['Key']}"
+                for obj in response['Contents']
+                if obj['LastModified'] > start_time
+            ]
+            logger.info(f"Found {len(file_list)} new files uploaded in the last 24 hours.")
+        
         return file_list
     
     except Exception as e:
@@ -119,8 +141,7 @@ def read_data_from_s3(spark, source_files: list):
 
         df = spark.read.parquet(*source_files)
 
-        count = df.count()
-        logger.info(f"Successfully read {count} records from {len(source_files)} files in {time.time() - start_time:.2f} seconds.")
+        logger.info(f"Successfully read {df.count()} records from {len(source_files)} files in {time.time() - start_time:.2f} seconds.")
         return df
 
     except Exception as e:
@@ -128,48 +149,96 @@ def read_data_from_s3(spark, source_files: list):
         raise
 
 
-def transform_data(spark,df):
+def transform_data(spark,df,target_path):
 
     """ Clean and transform the data accordingly"""
+    if df is None:
+        logger.info("No data to process. Exiting gracefully.")
+        spark.stop()
+        sys.exit(0)
+               # Exit the Python process with success code
+
+    # Process only new and updated records
     try:
-        if df is None:
-            logger.info("No data to process. Exiting gracefully.")
-            spark.stop()
-            sys.exit(0)   # Exit the Python process with success code
+        # Read The Existing data
+        logger.info(f"Attempting to read existing target dataset from {target_path}...")
+
+        try:
+            target_df = spark.read.parquet(target_path)
+            target_record_count = target_df.count()
+            logger.info(f"Successfully read {target_record_count} records from target dataset.")
+            is_first_run = False
+
+        except AnalysisException as e:
+            logger.warning(f"Target dataset not found. Performing full load. Details: {e}")
+            target_df = None
+            is_first_run = True
+        
+        if is_first_run:
+            logger.info("First run detected. Processing all incoming records.")
+            new_changed_entries = df
+
+
         else:
 
-            # casting column to appropriate type
-            df = df.withColumn("call_duration_seconds", col("call_duration_seconds").cast("int")) \
-                .withColumn("message_length", col("message_length").cast("int")) \
-                .withColumn("signal_strength_dbm", col("signal_strength_dbm").cast("int")) \
-                .withColumn("cost", col("cost").cast("double")) \
-                .withColumn("call_start_time", to_timestamp("call_start_time")) \
-                .withColumn("call_end_time", to_timestamp("call_end_time"))
+            # Identify latest timestamp from target
+            latest_ts= target_df.select(max("updated_at")).collect()[0][0]
 
-            # Ensure id values are non null and non positive
-            df = df.filter((col("id").isNotNull()) & (col("id") > 0)) 
+            # Filter new or updated entries
+            new_changed_entries = df.filter(col("updated_at") > latest_ts)
 
-            #ensure sim_card_number (Starts with '8930' and 19 digits),imsi_number (15 digits) imei_number (15 digits, etc
-            df =  df.filter(col("sim_card_number").rlike("^8930\\d{15}$")) \
-                .filter(col("imsi_number").rlike("^\\d{15}$")) \
-                .filter(col("imei_number").rlike("^\\d{15}$")) \
-                .filter(col("country_code").rlike("^\\+(234|1|44).*$")) \
-                .filter(col("cell_tower_id").rlike("^CT-\\d{4}$")) \
-                .filter(col("location_area_code").rlike("^\\d{3}-\\d{3}$")) 
-            
-            # Filter by Allowed Values
-            df = df.filter(col("call_type").isin("voice", "sms", "data")) \
-                .filter(col("service_type").isin("prepaid", "postpaid")) \
-                .filter(col("direction").isin("incoming", "outgoing")) \
-                .filter(col("network_type").isin("2G", "3G", "4G", "5G")) \
-                .filter(col("network_provider").isin("MTN", "Airtel", "Glo", "9mobile")) \
-                .filter(col("currency").isin("NGN", "USD")) \
-                .filter(col("call_end_time") >= col("call_start_time"))
-            
-        logger.info(f'Remaning records after transformation are: {df.count()}')
+            # Identify IDs of new/changed records
+            new_changed_id = new_changed_entries.select("id").distinct()
 
-        logger.info("Data Cleaning and transformation complete.")
-        return df
+            # Extract unchanged records from existing target
+            unchanged_entries_df = target_df.join(new_changed_id,"id", "left_anti")
+
+            logger.info(f"{unchanged_entries_df.count()} unchanged records retained.")
+
+
+        logger.info(f'Starting cleaning {new_changed_entries.count()} new records')
+
+        # casting column to appropriate type
+        new_changed_entries = new_changed_entries.withColumn("call_duration_seconds", col("call_duration_seconds").cast("int")) \
+            .withColumn("message_length", col("message_length").cast("int")) \
+            .withColumn("signal_strength_dbm", col("signal_strength_dbm").cast("int")) \
+            .withColumn("cost", col("cost").cast("double")) \
+            .withColumn("call_start_time", to_timestamp("call_start_time")) \
+            .withColumn("call_end_time", to_timestamp("call_end_time"))
+
+        # Ensure id values are non null and non positive
+        new_changed_entries = new_changed_entries.filter((col("id").isNotNull()) & (col("id") > 0)) 
+
+        #ensure sim_card_number (Starts with '8930' and 19 digits),imsi_number (15 digits) imei_number (15 digits, etc
+        new_changed_entries =  new_changed_entries.filter(col("sim_card_number").rlike("^8930\\d{15}$")) \
+            .filter(col("imsi_number").rlike("^\\d{15}$")) \
+            .filter(col("imei_number").rlike("^\\d{15}$")) \
+            .filter(col("country_code").rlike("^\\+(234|1|44).*$")) \
+            .filter(col("cell_tower_id").rlike("^CT-\\d{4}$")) \
+            .filter(col("location_area_code").rlike("^\\d{3}-\\d{3}$")) 
+        
+        # Filter by Allowed Values
+        new_changed_entries = new_changed_entries.filter(col("call_type").isin("voice", "sms", "data")) \
+            .filter(col("service_type").isin("prepaid", "postpaid")) \
+            .filter(col("direction").isin("incoming", "outgoing")) \
+            .filter(col("network_type").isin("2G", "3G", "4G", "5G")) \
+            .filter(col("network_provider").isin("MTN", "Airtel", "Glo", "9mobile")) \
+            .filter(col("currency").isin("NGN", "USD")) \
+            .filter(col("call_end_time") >= col("call_start_time"))
+    
+    
+        # ========== Merge Section ==========
+
+        if not is_first_run:
+            final_df = unchanged_entries_df.unionByName(new_changed_entries)
+        else:
+            final_df = new_changed_entries
+
+        logger.info(f"Final record count after transformation: {final_df.count()}")
+        logger.info("Data Cleaning and Transformation completed successfully.")
+
+        return final_df
+        
     except Exception as e:
         logger.error(f" Error during Cleaning and transformation: {e}")
         raise
@@ -205,15 +274,11 @@ def main():
     try:
         start = time.time()
 
-        env_type, aws_access_key, aws_secret_key, aws_region, jar_path, base_path = load_environment()
+        env_type,aws_access_key, aws_secret_key, aws_region, jar_path,base_path,source_bucket,target_path = load_environment()
         spark = create_spark_connection(env_type, aws_access_key, aws_secret_key, aws_region, jar_path)
-
-        # Specify the bucket to read and write into
-        source_bucket = "telecom-synthetic-data"
-        target_bucket = "processed-teleco-data"
         
         # Get all files uploaded in last 24 hours
-        source_files = get_files_uploaded_last_24_hours(aws_access_key,aws_secret_key,source_bucket)
+        source_files = get_uploaded_files(spark,aws_access_key,aws_secret_key,source_bucket,target_path)
         logging.info(f'The following files were detected :{source_files}')
         
         
@@ -221,11 +286,10 @@ def main():
         df_raw = read_data_from_s3(spark, source_files)
         
         # Transform the data
-        df_cleaned = transform_data(spark,df_raw)
+        df_cleaned = transform_data(spark,df_raw,target_path)
         
         # # Write cleaned data to destination in append mode
-        target_file_path = f"s3a://{target_bucket}/clean_data"
-        write_data_to_s3(df_cleaned,target_file_path)
+        write_data_to_s3(df_cleaned,target_path)
 
         logger.info("ETL pipeline completed successfully.")
         logger.info(f"Total execution time: {time.time() - start:.2f} seconds")
@@ -240,5 +304,3 @@ def main():
 # Entry Point
 if __name__ == "__main__":
     main()
-
-    
