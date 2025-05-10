@@ -13,10 +13,10 @@ resource "aws_s3_bucket" "cleaned_bucket" {
 resource "aws_s3_object" "upload_file" {
   bucket = "source-bucket-telecos-223"
   key    = "uploads/scripts/spark2.py"
-  source = "spark_code/spark2.py"
+  source = "../spark_code/spark2.py"
 
   # The filemd5() function is available in Terraform 0.11.12 and later
   # For Terraform 0.11.11 and earlier, use the md5() function and the file() function:
   # etag = "${md5(file("path/to/file"))}"
-  etag = filemd5("spark_code/spark2.py")
+  etag = filemd5("../spark_code/spark2.py")
 }
