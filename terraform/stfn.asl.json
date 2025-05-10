@@ -56,7 +56,7 @@
           "ExecutionRoleArn": "${EXECUTION_ROLE_ARN}",
           "JobDriver": {
             "SparkSubmit": {
-              "EntryPoint": "s3://final-aws-project/printme.py"
+              "EntryPoint": "s3://company-pyspark-scripts-223/uploads/scripts/spark2.py"
             }
           }
         },

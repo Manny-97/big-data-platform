@@ -25,7 +25,7 @@ def move_py_file_to_s3(file_path, bucket_name, s3_key):
 
 if __name__ == "__main__":
     move_py_file_to_s3(
-        file_path="spark1.py",
+        file_path="spark2.py",
         bucket_name="company-pyspark-scripts-223",
-        s3_key="uploads/scripts/spark1.py",
+        s3_key="uploads/scripts/spark2.py",
     )

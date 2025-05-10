@@ -61,6 +61,9 @@ aws_iam_role.step_func_role,
     aws_iam_policy_attachment.aws_lambda_access,
     aws_iam_role.emr_execution_role,
     aws_iam_role_policy.emr_execution_policy_attachment,
-    aws_s3_bucket.company_emr_bucket
+    aws_s3_bucket.company_emr_bucket,
+    aws_s3_bucket.source_bucket,
+    aws_s3_object.upload_file,
+    aws_s3_bucket.cleaned_bucket
        ]
 }
