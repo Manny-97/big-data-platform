@@ -11,7 +11,7 @@ resource "aws_s3_bucket" "cleaned_bucket" {
 }
 
 resource "aws_s3_object" "upload_file" {
-  bucket = "source-bucket-telecos-223"
+  bucket = "company-pyspark-scripts-223"
   key    = "uploads/scripts/spark2.py"
   source = "../spark_code/spark2.py"
 
@@ -19,4 +19,5 @@ resource "aws_s3_object" "upload_file" {
   # For Terraform 0.11.11 and earlier, use the md5() function and the file() function:
   # etag = "${md5(file("path/to/file"))}"
   etag = filemd5("../spark_code/spark2.py")
+  depends_on = [aws_s3_bucket.company_emr_bucket]
 }
