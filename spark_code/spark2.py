@@ -245,8 +245,8 @@ def main():
         )
 
         # Specify the bucket to read and write into
-        source_bucket = "telecom-synthetic-data"
-        target_bucket = "processed-teleco-data"
+        source_bucket = "source-bucket-telecos-223"
+        target_bucket = "cleaned-bucket-telecos-223"
 
         # Get all files uploaded in last 24 hours
         source_files = get_files_uploaded_last_24_hours(
