@@ -1,5 +1,5 @@
 resource "aws_s3_bucket" "company_emr_bucket" {
-  bucket = "company-pyspark-scripts223"
+  bucket = "company-pyspark-scripts-223"
 }
 
 resource "aws_s3_bucket" "source_bucket" {
